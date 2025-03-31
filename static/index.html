@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seamless AI Conversation</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        #chatbox {
+            height: 500px;
+            overflow-y: auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        .user-message, .ai-message {
+            padding: 12px 16px;
+            border-radius: 18px;
+            margin: 8px 0;
+            max-width: 80%;
+            line-height: 1.4;
+        }
+        .user-message {
+            background-color: #e3f2fd;
+            align-self: flex-end;
+            margin-left: auto;
+        }
+        .ai-message {
+            background-color: #f1f1f1;
+            align-self: flex-start;
+        }
+        #status-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 10px;
+            font-weight: 500;
+        }
+        .status-dot {
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            margin-right: 10px;
+            transition: background-color 0.3s ease;
+        }
+        .status-text {
+            font-size: 18px;
+        }
+        /* Status colors */
+        .listening { background-color: #4CAF50; } /* Green */
+        .speaking { background-color: #2196F3; }  /* Blue */
+        .thinking { background-color: #FFC107; }  /* Yellow */
+        .inactive { background-color: #9E9E9E; }  /* Gray */
+        
+        /* Instructions box */
+        .instructions {
+            background-color: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .instructions h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .hidden {
+            display: none;
+        }
+        #prompt-form {
+            display: flex;
+            margin-top: 20px;
+        }
+        #prompt-input {
+            flex-grow: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        #submit-prompt {
+            padding: 12px 20px;
+            margin-left: 10px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        #submit-prompt:hover {
+            background-color: #3367d6;
+        }
+        #audio-mode-toggle {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        #audio-mode-toggle button {
+            padding: 10px 16px;
+            background-color: #eee;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 0 5px;
+        }
+        #audio-mode-toggle button.active {
+            background-color: #4285f4;
+            color: white;
+            border-color: #3367d6;
+        }
+        #text-input-container {
+            display: flex;
+            margin-top: 20px;
+        }
+        #text-input {
+            flex-grow: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        #send-text {
+            padding: 12px 20px;
+            margin-left: 10px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Seamless AI Conversation</h1>
+    </header>
+    
+    <div class="instructions">
+        <h2>Your AI Conversation Assistant</h2>
+        <p>This system enables seamless voice conversations with an AI assistant. The assistant uses your custom prompt to guide the conversation.</p>
+        <p>Current status is shown below the conversation window. When the indicator is <strong style="color: #4CAF50">green</strong>, the AI is listening to you speak. When it's <strong style="color: #2196F3">blue</strong>, the AI is talking.</p>
+        
+        <div id="prompt-form">
+            <input type="text" id="prompt-input" placeholder="Enter a system prompt to guide the AI's behavior...">
+            <button id="submit-prompt">Set Prompt</button>
+        </div>
+        
+        <div id="audio-mode-toggle">
+            <button id="btn-microphone" class="active">Use Microphone</button>
+            <button id="btn-text-input">Use Text Input</button>
+        </div>
+        
+        <div id="text-input-container" class="hidden">
+            <input type="text" id="text-input" placeholder="Type your message here...">
+            <button id="send-text">Send</button>
+        </div>
+    </div>
+    
+    <div id="chatbox"></div>
+    
+    <div id="status-indicator">
+        <div class="status-dot inactive"></div>
+        <div class="status-text">Connecting...</div>
+    </div>
+
+    <script>
+        // Generate a random client ID
+        const clientId = Math.random().toString(36).substring(2, 15);
+        const ws = new WebSocket(`ws://localhost:8001/ws/${clientId}`);
+        const chatbox = document.getElementById("chatbox");
+        const statusDot = document.querySelector(".status-dot");
+        const statusText = document.querySelector(".status-text");
+        const promptInput = document.getElementById("prompt-input");
+        const submitPrompt = document.getElementById("submit-prompt");
+        const btnMicrophone = document.getElementById("btn-microphone");
+        const btnTextInput = document.getElementById("btn-text-input");
+        const textInputContainer = document.getElementById("text-input-container");
+        const textInput = document.getElementById("text-input");
+        const sendText = document.getElementById("send-text");
+        
+        let recognition = null;
+        let isRecording = false;
+        let audioPlaying = false;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let useMicrophone = true;
+        
+        // Toggle between microphone and text input
+        btnMicrophone.addEventListener('click', function() {
+            btnMicrophone.classList.add('active');
+            btnTextInput.classList.remove('active');
+            textInputContainer.classList.add('hidden');
+            useMicrophone = true;
+            
+            if (!audioPlaying) {
+                startListening();
+            }
+        });
+        
+        btnTextInput.addEventListener('click', function() {
+            btnTextInput.classList.add('active');
+            btnMicrophone.classList.remove('active');
+            textInputContainer.classList.remove('hidden');
+            useMicrophone = false;
+            
+            stopListening();
+        });
+        
+        // Send text message
+        sendText.addEventListener('click', function() {
+            sendTextMessage();
+        });
+        
+        textInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendTextMessage();
+            }
+        });
+        
+        function sendTextMessage() {
+            const text = textInput.value.trim();
+            if (text) {
+                addMessage(text, 'user');
+                ws.send(text);
+                textInput.value = '';
+            }
+        }
+        
+        // Initialize speech recognition (WebSpeech API)
+        function initSpeechRecognition() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                alert("Your browser doesn't support speech recognition. Try Chrome or Edge.");
+                return false;
+            }
+            
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.lang = 'en-US';
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            
+            recognition.onresult = function(event) {
+                const lastResult = event.results.length - 1;
+                const transcript = event.results[lastResult][0].transcript;
+                
+                if (transcript.trim()) {
+                    // Display user message
+                    addMessage(transcript, 'user');
+                    
+                    // Send to server
+                    ws.send(transcript);
+                    
+                    // Stop listening while AI is responding
+                    stopListening();
+                }
+            };
+            
+            recognition.onend = function() {
+                // If we were supposed to be recording but it stopped, restart it
+                if (isRecording && !audioPlaying && useMicrophone) {
+                    startListening();
+                }
+            };
+            
+            recognition.onerror = function(event) {
+                console.error("Speech recognition error", event.error);
+                // If it was a temporary error, restart
+                if (event.error !== 'no-speech' && isRecording && useMicrophone) {
+                    setTimeout(startListening, 1000);
+                }
+            };
+            
+            return true;
+        }
+        
+        // Initialize MediaRecorder for Google Speech-to-Text
+        async function initMediaRecorder() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm',
+                });
+                
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = async function() {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    audioChunks = [];
+                    
+                    // Convert to base64 and send over WebSocket
+                    const reader = new FileReader();
+                    reader.readAsDataURL(audioBlob);
+                    reader.onloadend = function() {
+                        const base64Audio = reader.result;
+                        ws.send(base64Audio);
+                        
+                        // If debugging, you can also upload the file directly
+                        // uploadAudioFile(audioBlob);
+                    };
+                };
+                
+                return true;
+            } catch (err) {
+                console.error("Error accessing microphone:", err);
+                alert("Could not access microphone. Please check permissions.");
+                return false;
+            }
+        }
+        
+        async function uploadAudioFile(blob) {
+            const formData = new FormData();
+            formData.append('file', blob, 'recording.webm');
+            
+            try {
+                const response = await fetch(`/upload-audio/${clientId}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                if (result.error) {
+                    console.error("Upload error:", result.error);
+                }
+            } catch (err) {
+                console.error("Error uploading audio:", err);
+            }
+        }
+        
+        async function startListening() {
+            if (!useMicrophone) return;
+            
+            if (!recognition && !initSpeechRecognition()) return;
+            if (!mediaRecorder && !(await initMediaRecorder())) return;
+            
+            try {
+                // Start WebSpeech recognition for fallback and display
+                recognition.start();
+                
+                // Start recording for Google Cloud Speech-to-Text
+                if (mediaRecorder && mediaRecorder.state !== 'recording') {
+                    audioChunks = [];
+                    mediaRecorder.start();
+                    
+                    // Set a timeout to stop recording after a period of silence
+                    setTimeout(() => {
+                        if (mediaRecorder && mediaRecorder.state === 'recording' && !audioPlaying) {
+                            mediaRecorder.stop();
+                        }
+                    }, 5000); // 5 seconds or adjust as needed
+                }
+                
+                isRecording = true;
+                updateStatus('listening', 'Listening...');
+            } catch (e) {
+                console.error("Failed to start recording:", e);
+            }
+        }
+        
+        function stopListening() {
+            // Stop WebSpeech API recognition
+            if (recognition) {
+                try {
+                    recognition.stop();
+                } catch (e) {
+                    console.error("Failed to stop WebSpeech recognition:", e);
+                }
+            }
+            
+            // Stop MediaRecorder if it's recording
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                try {
+                    mediaRecorder.stop();
+                } catch (e) {
+                    console.error("Failed to stop MediaRecorder:", e);
+                }
+            }
+            
+            isRecording = false;
+        }
+        
+        function addMessage(text, sender) {
+            const messageDiv = document.createElement("div");
+            messageDiv.className = sender === 'user' ? "user-message" : "ai-message";
+            messageDiv.textContent = text;
+            chatbox.appendChild(messageDiv);
+            chatbox.scrollTop = chatbox.scrollHeight;
+        }
+        
+        function updateStatus(statusType, text) {
+            statusDot.className = `status-dot ${statusType}`;
+            statusText.textContent = text;
+        }
+        
+        // Connect WebSocket
+        ws.onopen = function() {
+            updateStatus('inactive', 'Connected');
+        };
+        
+        ws.onclose = function() {
+            updateStatus('inactive', 'Disconnected');
+            stopListening();
+        };
+        
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            
+            // Handle status updates
+            if (data.status) {
+                if (data.status === 'listening') {
+                    audioPlaying = false;
+                    updateStatus('listening', 'Listening...');
+                    if (useMicrophone) {
+                        startListening();
+                    }
+                } else if (data.status === 'speaking') {
+                    audioPlaying = true;
+                    updateStatus('speaking', 'Speaking...');
+                    stopListening();
+                } else if (data.status === 'thinking') {
+                    updateStatus('thinking', 'Thinking...');
+                }
+            }
+            
+            // Display transcript if included
+            if (data.transcript) {
+                addMessage(data.transcript, 'user');
+            }
+            
+            // Display AI message if included
+            if (data.text && !data.error) {
+                addMessage(data.text, 'ai');
+            }
+            
+            // Play audio if available
+            if (data.audio_url) {
+                const audio = new Audio(data.audio_url);
+                audio.play();
+                
+                // When audio ends
+                audio.onended = function() {
+                    if (data.status === 'speaking') {
+                        // The backend will send a listening status after speech
+                        // but this is a fallback in case that fails
+                        setTimeout(() => {
+                            if (!audioPlaying) {
+                                if (useMicrophone) {
+                                    startListening();
+                                }
+                            }
+                        }, 500);
+                    }
+                };
+            }
+            
+            // Handle errors
+            if (data.error) {
+                console.error("Server error:", data.error);
+                updateStatus('inactive', 'Error occurred');
+                setTimeout(() => {
+                    if (useMicrophone) {
+                        startListening();
+                    }
+                }, 2000);
+            }
+        };
+        
+        // Submit custom prompt
+        submitPrompt.addEventListener('click', function() {
+            const promptText = promptInput.value.trim();
+            if (promptText) {
+                ws.send(`[SYSTEM PROMPT] ${promptText}`);
+                alert("Prompt set! The AI will now follow these instructions.");
+                promptInput.value = '';
+            } else {
+                alert("Please enter a prompt before submitting.");
+            }
+        });
+        
+        // Start the experience when everything is loaded
+        window.onload = function() {
+            setTimeout(() => {
+                initSpeechRecognition();
+                initMediaRecorder();
+            }, 1000);
+        };
+    </script>
+</body>
+</html>
